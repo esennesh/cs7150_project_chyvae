@@ -12,7 +12,7 @@ class Trainer(BaseTrainer):
     """
     def __init__(self, model, criterion, metric_ftns, optimizer, config, data_loader,
                  valid_data_loader=None, lr_scheduler=None, len_epoch=None,
-                 num_particles=4, jit=False):
+                 num_particles=1, jit=False):
         super().__init__(model, criterion, metric_ftns, optimizer, config)
         self.config = config
         self.data_loader = data_loader
@@ -41,10 +41,10 @@ class Trainer(BaseTrainer):
         :return: A log that contains average loss and metric in this epoch.
         """
         if self.jit:
-            elbo = JitTraceGraph_ELBO(vectorize_particles=False,
+            elbo = JitTraceGraph_ELBO(vectorize_particles=True,
                                       num_particles=self.num_particles)
         else:
-            elbo = TraceGraph_ELBO(vectorize_particles=False,
+            elbo = TraceGraph_ELBO(vectorize_particles=True,
                                    num_particles=self.num_particles)
         svi = SVI(self.model.model, self.model.guide, self.optimizer, loss=elbo)
 
@@ -53,11 +53,10 @@ class Trainer(BaseTrainer):
         for batch_idx, (data, target) in enumerate(self.data_loader):
             data, target = data.to(self.device), target.to(self.device)
 
-            self.optimizer.zero_grad()
-            loss = svi.step(observations=data)
+            loss = svi.step(imgs=data)
 
             self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
-            self.train_metrics.update('loss', loss.item())
+            self.train_metrics.update('loss', loss)
             for met in self.metric_ftns:
                 self.train_metrics.update(met.__name__, met(target))
 
@@ -65,7 +64,7 @@ class Trainer(BaseTrainer):
                 self.logger.debug('Train Epoch: {} {} Loss: {:.6f}'.format(
                     epoch,
                     self._progress(batch_idx),
-                    loss.item()))
+                    loss))
                 self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
 
             if batch_idx == self.len_epoch:
@@ -103,7 +102,7 @@ class Trainer(BaseTrainer):
                 loss = svi.evaluate_loss(observations=data)
 
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
-                self.valid_metrics.update('loss', loss.item())
+                self.valid_metrics.update('loss', loss)
                 for met in self.metric_ftns:
                     self.valid_metrics.update(met.__name__, met(target))
                 self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
