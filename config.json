@@ -1,16 +1,16 @@
 {
-    "name": "Mnist_LeNet",
+    "name": "Shapes_ChyVAE",
     "n_gpu": 1,
 
     "arch": {
-        "type": "MnistModel",
+        "type": "ShapesChyVae",
         "args": {}
     },
     "data_loader": {
-        "type": "MnistDataLoader",
+        "type": "dSpriteDataLoader",
         "args":{
             "data_dir": "data/",
-            "batch_size": 128,
+            "batch_size": 256,
             "shuffle": true,
             "validation_split": 0.1,
             "num_workers": 2
@@ -19,7 +19,7 @@
     "optimizer": {
         "type": "Adam",
         "args":{
-            "lr": 0.001,
+            "lr": 1e-4,
             "weight_decay": 0,
             "amsgrad": true
         }
