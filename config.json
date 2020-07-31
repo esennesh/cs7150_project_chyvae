@@ -13,7 +13,7 @@
         "type": "dSpriteDataLoader",
         "args":{
             "data_dir": "data/",
-            "batch_size": 512,
+            "batch_size": 1024,
             "shuffle": true,
             "validation_split": 0.1,
             "num_workers": 2
@@ -27,7 +27,7 @@
             "amsgrad": true
         }
     },
-    "loss": "nll_loss",
+    "loss": "elbo",
     "metrics": [
         "accuracy", "top_k_acc"
     ],

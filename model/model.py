@@ -1,18 +1,14 @@
+import collections
 import numpy as np
-import pyro
-import pyro.distributions as dist
-import pyro.nn as pnn
+import probtorch
 import torch
+import torch.distributions as dist
 import torch.distributions.transforms as transforms
 import torch.nn as nn
 import torch.nn.functional as F
 from base import BaseModel
 
-class ContinuousBernoulli(torch.distributions.ContinuousBernoulli,
-                          dist.torch_distribution.TorchDistributionMixin):
-    pass
-
-class Wishart(dist.TorchDistribution):
+class Wishart(dist.Distribution):
     has_rsample = True
 
     def __init__(self, df, scale, validate_args=None):
@@ -60,7 +56,7 @@ class Wishart(dist.TorchDistribution):
         log_numerator = numerator_logdet + numerator_logtrace
         return log_numerator - log_normalizer
 
-class InverseWishart(dist.TorchDistribution):
+class InverseWishart(dist.Distribution):
     has_rsample = True
 
     def __init__(self, df, scale, validate_args=None):
@@ -116,54 +112,55 @@ class ShapesChyVae(BaseModel):
     def z_dim(self):
         return self._z_dim
 
-    @pnn.pyro_method
-    def model(self, imgs=None):
+    def model(self, p, q=None, imgs=None):
+        if not q:
+            q = collections.defaultdict(lambda x: None)
         if imgs is None:
             imgs = torch.zeros(1, np.sqrt(self._data_dim),
                                np.sqrt(self._data_dim))
 
-        with pyro.plate('imgs', len(imgs)):
-            eye = torch.eye(self.z_dim).expand(imgs.shape[0], self.z_dim,
-                                               self.z_dim)
-            inv_wishart = InverseWishart(self.z_dim + 1, eye, False)
-            covariance = pyro.sample('covariance', inv_wishart)
+        eye = torch.eye(self.z_dim).expand(imgs.shape[0], self.z_dim,
+                                           self.z_dim)
+        covariance = p.variable(InverseWishart, self.z_dim + 1, eye,
+                                name='covariance', value=q['covariance'].value)
+        scale_tril = self.lower_choleskyize(covariance)
 
-            mu = imgs.new_zeros(self.z_dim)
-            zs_dist = dist.MultivariateNormal(mu, covariance_matrix=covariance)
-            zs = pyro.sample('z', zs_dist)
+        mu = imgs.new_zeros(self.z_dim)
+        zs = p.multivariate_normal(loc=mu, scale_tril=scale_tril, name='z',
+                                   value=q['z'].value)
 
-            features = self.decoder_linears(zs).view(-1, 64, 4, 4)
-            reconstruction = self.decoder_convs(features)
-            reconstruction_dist = ContinuousBernoulli(logits=reconstruction)
-            pyro.sample('reconstruction', reconstruction_dist.to_event(3),
-                        obs=imgs)
+        features = self.decoder_linears(zs).view(-1, 64, 4, 4)
+        reconstruction = self.decoder_convs(features)
+        reconstruction = p.continuous_bernoulli(logits=reconstruction,
+                                                name=reconstruction, value=imgs)
+
         return mu, covariance, zs, reconstruction
 
-    @pnn.pyro_method
-    def guide(self, imgs):
+    def guide(self, q, imgs):
         features = self.encoder_convs(imgs).view(len(imgs), -1)
         features = self.encoder_linears(features)
 
-        with pyro.plate('imgs', len(imgs)):
-            mu = self.mu_encoder(features)
-            scale_tril = self.scale_encoder(features).view(-1, self.z_dim,
-                                                           self.z_dim)
-            scale_tril = self.lower_choleskyize(scale_tril)
-            z_dist = dist.MultivariateNormal(mu, scale_tril=scale_tril)
-            zs = pyro.sample('z', z_dist)
+        mu = self.mu_encoder(features)
+        scale_tril = self.scale_encoder(features).view(-1, self.z_dim,
+                                                       self.z_dim)
+        scale_tril = self.lower_choleskyize(scale_tril)
+        zs = q.multivariate_normal(loc=mu, scale_tril=scale_tril, name='z')
 
-            cov_loc = torch.eye(self.z_dim).expand(imgs.shape[0], self.z_dim,
-                                                   self.z_dim).to(imgs)
-            zs_squared = torch.stack([z.unsqueeze(-1) @ z.unsqueeze(0) for z
-                                      in torch.unbind(zs, dim=0)], dim=0)
-            cov_loc = cov_loc + zs_squared
-            inv_wishart = InverseWishart(self.z_dim + 2, cov_loc, False)
-            covariance = pyro.sample('covariance', inv_wishart)
+        cov_loc = torch.eye(self.z_dim).expand(imgs.shape[0], self.z_dim,
+                                               self.z_dim).to(imgs)
+        zs_squared = torch.stack([z.unsqueeze(-1) @ z.unsqueeze(0) for z
+                                  in torch.unbind(zs, dim=0)], dim=0)
+        cov_loc = cov_loc + zs_squared
+        covariance = q.variable(InverseWishart, self.z_dim + 2, cov_loc,
+                                name='covariance')
 
-            return zs, covariance
+        return zs, covariance
 
     def forward(self, imgs=None):
-        if imgs is not None:
-            trace = pyro.poutine.trace(self.guide).get_trace(imgs=imgs)
-            return pyro.poutine.replay(self.model, trace=trace)(imgs=imgs)
-        return self.model(imgs=None)
+        q = probtorch.Trace()
+        self.guide(q, imgs)
+
+        p = probtorch.Trace()
+        self.model(p, q, imgs)
+
+        return p, q
