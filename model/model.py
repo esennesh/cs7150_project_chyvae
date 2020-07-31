@@ -66,6 +66,14 @@ class InverseWishart(dist.TorchDistribution):
     def __init__(self, df, scale, validate_args=None):
         self.base_wishart = Wishart(df, torch.inverse(scale), validate_args)
 
+    @property
+    def batch_shape(self):
+        return self.base_wishart.batch_shape
+
+    @property
+    def event_shape(self):
+        return self.base_wishart.event_shape
+
     def rsample(self, sample_shape=torch.Size()):
         return torch.inverse(self.base_wishart.rsample(sample_shape))
 
