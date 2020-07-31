@@ -98,7 +98,6 @@ class ShapesChyVae(BaseModel):
         )
         self.mu_encoder = nn.Linear(128, self._z_dim)
         self.scale_encoder = nn.Linear(128, self._z_dim ** 2)
-        self.variance_encoder = nn.Linear(self._z_dim, self._z_dim * 2)
 
         self.decoder_linears = nn.Sequential(
             nn.Linear(self._z_dim, 128), nn.ReLU(),
@@ -120,17 +119,15 @@ class ShapesChyVae(BaseModel):
     @pnn.pyro_method
     def model(self, imgs=None):
         if imgs is None:
-            imgs = torch.zeros(1, self._data_dim)
+            imgs = torch.zeros(1, np.sqrt(self._data_dim),
+                               np.sqrt(self._data_dim))
 
         with pyro.plate('imgs', len(imgs)):
-            omega_dist = dist.LKJCorrCholesky(self.z_dim, imgs.new_ones(1))
-            omega = pyro.sample('omega', omega_dist.expand([len(imgs)]))
-            variance_dist = dist.LogNormal(imgs.new_zeros(self.z_dim),
-                                           imgs.new_ones(self.z_dim))
-            variances = pyro.sample('variances', variance_dist.to_event(1))
-            scales = [torch.diag(torch.sqrt(variances[i])) @ omega[i] for i
-                      in range(len(imgs))]
-            scale_tril = self.lower_choleskyize(torch.stack(scales, dim=0))
+            eye = torch.eye(self.z_dim).expand(imgs.shape[0], self.z_dim,
+                                               self.z_dim)
+            inv_wishart = InverseWishart(self.z_dim + 1, eye, False)
+            covariance = pyro.sample('covariance', inv_wishart)
+            scale_tril = self.lower_choleskyize(covariance)
 
             mu = imgs.new_zeros(self.z_dim)
             zs_dist = dist.MultivariateNormal(mu, scale_tril=scale_tril)
@@ -156,16 +153,14 @@ class ShapesChyVae(BaseModel):
             z_dist = dist.MultivariateNormal(mu, scale_tril=scale_tril)
             zs = pyro.sample('z', z_dist)
 
-            omega_dist = dist.LKJCorrCholesky(self.z_dim, imgs.new_ones(1)).expand([len(imgs)])
-            omega = pyro.sample('omega', omega_dist)
-
-            vars_params = self.variance_encoder(zs).view(-1, 2, self.z_dim)
-            variance_dist = dist.LogNormal(vars_params[:, 0],
-                                           F.softplus(vars_params[:, 1]))
-            variances = pyro.sample('variances', variance_dist.to_event(1))
-            scales = [torch.diag(torch.sqrt(variances[i])) @ omega[i] for i
-                      in range(len(imgs))]
-            scale_tril = self.lower_choleskyize(torch.stack(scales, dim=0))
+            cov_loc = torch.eye(self.z_dim).expand(imgs.shape[0], self.z_dim,
+                                                   self.z_dim).to(imgs)
+            zs_squared = torch.stack([z.unsqueeze(-1) @ z.unsqueeze(0) for z
+                                      in torch.unbind(zs, dim=0)], dim=0)
+            cov_loc = cov_loc + zs_squared
+            inv_wishart = InverseWishart(self.z_dim + 2, cov_loc, False)
+            covariance = pyro.sample('covariance', inv_wishart)
+            scale_tril = self.lower_choleskyize(covariance)
 
             return zs, scale_tril
 
