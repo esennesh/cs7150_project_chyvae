@@ -81,7 +81,7 @@ class InverseWishart(dist.TorchDistribution):
         return self.base_wishart.log_prob(torch.inverse(value))
 
 class ShapesChyVae(BaseModel):
-    def __init__(self, z_dim=10, data_dim=28*28):
+    def __init__(self, z_dim=10, data_dim=64*64):
         super().__init__()
         self._z_dim = z_dim
         self._data_dim = data_dim
