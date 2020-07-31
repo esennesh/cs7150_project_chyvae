@@ -1,3 +1,4 @@
+import numpy as np
 import pyro
 import pyro.distributions as dist
 import pyro.nn as pnn
@@ -10,6 +11,41 @@ from base import BaseModel
 class ContinuousBernoulli(torch.distributions.ContinuousBernoulli,
                           dist.torch_distribution.TorchDistributionMixin):
     pass
+
+class Wishart(dist.TorchDistribution):
+    has_rsample = True
+
+    def __init__(self, df, scale, validate_args=None):
+        self._dim = scale.shape[-1]
+        assert df > self._dim - 1
+        self.df = df
+        self.cholesky_factor = transforms.LowerCholeskyTransform()(scale)
+        self.chi_sqd_dists = [dist.Chi2(self.df - i) for i in range(self._dim)]
+        batch_shape, event_shape = scale.shape[:-2], scale.shape[-2:]
+        super().__init__(batch_shape, event_shape, validate_args)
+
+    def rsample(self, sample_shape=torch.Size()):
+        A = torch.eye(self._dim).expand(sample_shape, self._dim, self._dim)
+        A = A.to(self.cholesky_factor)
+        chi_sqds = torch.stack([d.rsample(sample_shape)
+                                for d in self._chi_sqd_dists], dim=-1)
+        A = torch.tril(torch.randn(*sample_shape, *A.shape), diagonal=-1) +\
+            A * chi_sqds
+
+        return self.cholesky_factor @ (A @ A.t()) @ self.cholesky_factor.t()
+
+    def log_prob(self, value):
+        scale = self.cholesky_factor @ self.cholesky_factor.t()
+        log_normalizer = (self.df * self._dim / 2) * np.log(2) +\
+                         (self.df / 2) * torch.logdet(scale) +\
+                         torch.mvlgamma(self.df / 2, self._dim)
+
+        numerator_logdet = ((self.df - self._dim - 1) / 2) * torch.logdet(value)
+        numerator_logtrace = -1/2 * torch.trace(
+            torch.cholesky_inverse(self.cholesky_factor) @ value
+        )
+        log_numerator = numerator_logdet + numerator_logtrace
+        return log_numerator - log_normalizer
 
 class ShapesChyVae(BaseModel):
     def __init__(self, z_dim=10, data_dim=28*28):
