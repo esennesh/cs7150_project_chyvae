@@ -1,5 +1,6 @@
-import torch.nn.functional as F
+import probtorch.objectives.montecarlo as objectives
 
+def elbo(output, target):
+    p, q = output
 
-def nll_loss(output, target):
-    return F.nll_loss(output, target)
+    return -objectives.elbo(q, p, sample_dim=None, batch_dim=0)
