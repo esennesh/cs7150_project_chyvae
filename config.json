@@ -4,7 +4,10 @@
 
     "arch": {
         "type": "ShapesChyVae",
-        "args": {}
+        "args": {
+            "z_dim": 10,
+            "data_dim": 4096
+        }
     },
     "data_loader": {
         "type": "dSpriteDataLoader",
