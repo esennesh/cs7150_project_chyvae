@@ -47,6 +47,18 @@ class Wishart(dist.TorchDistribution):
         log_numerator = numerator_logdet + numerator_logtrace
         return log_numerator - log_normalizer
 
+class InverseWishart(dist.TorchDistribution):
+    has_rsample = True
+
+    def __init__(self, df, scale, validate_args=None):
+        self.base_wishart = Wishart(df, torch.inverse(scale), validate_args)
+
+    def rsample(self, sample_shape=torch.Size()):
+        return torch.inverse(self.base_wishart.rsample(sample_shape))
+
+    def log_prob(self, value):
+        return self.base_wishart.log_prob(torch.inverse(value))
+
 class ShapesChyVae(BaseModel):
     def __init__(self, z_dim=10, data_dim=28*28):
         super().__init__()
