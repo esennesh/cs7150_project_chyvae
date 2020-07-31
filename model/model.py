@@ -108,6 +108,9 @@ class ShapesChyVae(BaseModel):
 
         self.lower_choleskyize = transforms.LowerCholeskyTransform()
 
+        self.cov_loc = nn.Parameter(torch.eye(self.z_dim))
+        self.cov_df = self.z_dim + 1
+
     @property
     def z_dim(self):
         return self._z_dim
@@ -119,15 +122,13 @@ class ShapesChyVae(BaseModel):
             imgs = torch.zeros(1, np.sqrt(self._data_dim),
                                np.sqrt(self._data_dim))
 
-        eye = torch.eye(self.z_dim).expand(imgs.shape[0], self.z_dim,
-                                           self.z_dim)
-        covariance = p.variable(InverseWishart, self.z_dim + 1, eye,
+        cov_loc = self.cov_loc.expand(imgs.shape[0], self.z_dim, self.z_dim)
+        covariance = p.variable(InverseWishart, self.cov_df, cov_loc,
                                 name='covariance', value=q['covariance'].value)
-        scale_tril = self.lower_choleskyize(covariance)
 
         mu = imgs.new_zeros(self.z_dim)
-        zs = p.multivariate_normal(loc=mu, scale_tril=scale_tril, name='z',
-                                   value=q['z'].value)
+        zs = p.multivariate_normal(loc=mu, covariance_matrix=covariance,
+                                   name='z', value=q['z'].value)
 
         features = self.decoder_linears(zs).view(-1, 64, 4, 4)
         reconstruction = self.decoder_convs(features)
@@ -141,18 +142,20 @@ class ShapesChyVae(BaseModel):
         features = self.encoder_linears(features)
 
         mu = self.mu_encoder(features)
-        scale_tril = self.scale_encoder(features).view(-1, self.z_dim,
-                                                       self.z_dim)
-        scale_tril = self.lower_choleskyize(scale_tril)
-        zs = q.multivariate_normal(loc=mu, scale_tril=scale_tril, name='z')
+        A = self.scale_encoder(features).view(-1, self.z_dim, self.z_dim)
+        L = torch.tril(A)
+        diagonal = F.softplus(A.diagonal(0, -2, -1)) + 1e-4
+        L = L + torch.diag_embed(diagonal)
+        L_LT = torch.stack([l @ l.t() for l in torch.unbind(L, dim=0)], dim=0)
+        covariance = L_LT + 1e-4 * torch.eye(self.z_dim).to(imgs)
+        zs = q.multivariate_normal(loc=mu, covariance_matrix=covariance,
+                                   name='z')
 
-        cov_loc = torch.eye(self.z_dim).expand(imgs.shape[0], self.z_dim,
-                                               self.z_dim).to(imgs)
+        cov_loc = self.cov_loc.expand(imgs.shape[0], self.z_dim, self.z_dim)
         zs_squared = torch.stack([z.unsqueeze(-1) @ z.unsqueeze(0) for z
                                   in torch.unbind(zs, dim=0)], dim=0)
-        cov_loc = cov_loc + zs_squared
-        covariance = q.variable(InverseWishart, self.z_dim + 2, cov_loc,
-                                name='covariance')
+        q.variable(InverseWishart, self.cov_df + 1, cov_loc + zs_squared,
+                   name='covariance', value=covariance)
 
         return zs, covariance
 
