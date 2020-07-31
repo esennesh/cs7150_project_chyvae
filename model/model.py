@@ -127,10 +127,9 @@ class ShapesChyVae(BaseModel):
                                                self.z_dim)
             inv_wishart = InverseWishart(self.z_dim + 1, eye, False)
             covariance = pyro.sample('covariance', inv_wishart)
-            scale_tril = self.lower_choleskyize(covariance)
 
             mu = imgs.new_zeros(self.z_dim)
-            zs_dist = dist.MultivariateNormal(mu, scale_tril=scale_tril)
+            zs_dist = dist.MultivariateNormal(mu, covariance_matrix=covariance)
             zs = pyro.sample('z', zs_dist)
 
             features = self.decoder_linears(zs).view(-1, 64, 4, 4)
@@ -138,7 +137,7 @@ class ShapesChyVae(BaseModel):
             reconstruction_dist = ContinuousBernoulli(logits=reconstruction)
             pyro.sample('reconstruction', reconstruction_dist.to_event(3),
                         obs=imgs)
-        return mu, scale_tril, zs, reconstruction
+        return mu, covariance, zs, reconstruction
 
     @pnn.pyro_method
     def guide(self, imgs):
@@ -160,9 +159,8 @@ class ShapesChyVae(BaseModel):
             cov_loc = cov_loc + zs_squared
             inv_wishart = InverseWishart(self.z_dim + 2, cov_loc, False)
             covariance = pyro.sample('covariance', inv_wishart)
-            scale_tril = self.lower_choleskyize(covariance)
 
-            return zs, scale_tril
+            return zs, covariance
 
     def forward(self, imgs=None):
         if imgs is not None:
