@@ -14,7 +14,7 @@ class Wishart(dist.Distribution):
     def __init__(self, df, scale, validate_args=None):
         self._dim = scale.shape[-1]
         assert df > self._dim - 1
-        self.df = df
+        self.df = torch.tensor([df], dtype=torch.int, device=scale.device)
         self.cholesky_factor = transforms.LowerCholeskyTransform()(scale)
         self.chi_sqd_dists = [dist.Chi2(self.df - i) for i in range(self._dim)]
         batch_shape, event_shape = scale.shape[:-2], scale.shape[-2:]
@@ -27,9 +27,9 @@ class Wishart(dist.Distribution):
                                 for d in self.chi_sqd_dists], dim=-1)
         chi_sqds = torch.stack([torch.diag(chi_sqd) for chi_sqd
                                 in torch.unbind(chi_sqds, dim=0)], dim=0)
-        A_tril = torch.tril(torch.randn(*sample_shape, self._dim, self._dim),
-                            diagonal=-1).to(self.cholesky_factor)
-        A = chi_sqds.to(self.cholesky_factor) + A_tril
+        A = torch.tril(torch.randn(*sample_shape, self._dim, self._dim,
+                                   device=self.df.device),
+                       diagonal=-1) + chi_sqds
 
         results = []
         for chol, a_mat in zip(torch.unbind(self.cholesky_factor, dim=0),
@@ -38,14 +38,13 @@ class Wishart(dist.Distribution):
         return torch.stack(results, dim=0)
 
     def log_prob(self, value):
-        cholesky_factor = self.cholesky_factor.to(value)
+        cholesky_factor = self.cholesky_factor
 
         scale = torch.stack([chol @ chol.t() for chol in
                              torch.unbind(cholesky_factor, dim=0)], dim=0)
-        df_factor = torch.tensor([self.df / 2]).to(value)
         log_normalizer = (self.df * self._dim / 2) * np.log(2) +\
                          (self.df / 2) * torch.logdet(scale) +\
-                         torch.mvlgamma(df_factor, self._dim)
+                         torch.mvlgamma(self.df / 2, self._dim)
 
         numerator_logdet = (self.df - self._dim - 1) / 2 * torch.logdet(value)
         choleskied_value = torch.stack([
