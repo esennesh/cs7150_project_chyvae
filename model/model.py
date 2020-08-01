@@ -32,26 +32,21 @@ class Wishart(dist.Distribution):
                        diagonal=-1) + chi_sqds
 
         results = []
-        for chol, a_mat in zip(torch.unbind(self.cholesky_factor, dim=0),
-                               torch.unbind(A, dim=0)):
-            results.append(chol @ (a_mat @ a_mat.t()) @ chol.t())
-        return torch.stack(results, dim=0)
+        chol_a_mat = torch.bmm(chol, a_mat)
+        return torch.bmm(chol_a_mat, chol_a_mat.transpose(-2, -1))
 
     def log_prob(self, value):
         cholesky_factor = self.cholesky_factor
 
-        scale = torch.stack([chol @ chol.t() for chol in
-                             torch.unbind(cholesky_factor, dim=0)], dim=0)
+        scale = torch.bmm(chol, chol.transpose(-2, -1))
         log_normalizer = (self.df * self._dim / 2.) * np.log(2) +\
                          (self.df / 2.) * torch.logdet(scale) +\
                          torch.mvlgamma(self.df / 2., self._dim)
 
         numerator_logdet = (self.df - self._dim - 1) / 2. * torch.logdet(value)
-        choleskied_value = torch.stack([
-            torch.trace(torch.cholesky_inverse(cholesky_factor[i]) @ value[i])
-            for i in range(value.shape[0])
-        ], dim=0)
-        numerator_logtrace = -1/2 * choleskied_value
+        choleskied_value = torch.bmm(torch.cholesky_inverse(cholesky_factor),
+                                     value)
+        numerator_logtrace = -1/2 * torch.trace(choleskied_value)
         log_numerator = numerator_logdet + numerator_logtrace
         return log_numerator - log_normalizer
 
