@@ -42,8 +42,8 @@ class Wishart(dist.Distribution):
 
         scale = torch.stack([chol @ chol.t() for chol in
                              torch.unbind(cholesky_factor, dim=0)], dim=0)
-        log_normalizer = (self.df * self._dim / 2) * np.log(2) +\
-                         (self.df // 2) * torch.logdet(scale) +\
+        log_normalizer = (self.df * self._dim / 2.) * np.log(2) +\
+                         (self.df / 2.) * torch.logdet(scale) +\
                          torch.mvlgamma(self.df / 2., self._dim)
 
         numerator_logdet = (self.df - self._dim - 1) / 2. * torch.logdet(value)
