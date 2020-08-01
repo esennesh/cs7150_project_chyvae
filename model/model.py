@@ -146,7 +146,7 @@ class ShapesChyVae(BaseModel):
 
         cov_loc = self.cov_loc.expand(imgs.shape[0], self.z_dim, self.z_dim)
         zs_squared = torch.bmm(zs.unsqueeze(-1), zs.unsqueeze(-2))
-        q.variable(Wishart, self.cov_df + 1, cov_loc + zs_squared,
+        q.variable(Wishart, self.cov_df + 1, torch.inverse(cov_loc + zs_squared),
                    name='precision', value=precision)
 
         return zs, precision
