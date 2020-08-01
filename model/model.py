@@ -145,14 +145,13 @@ class ShapesChyVae(BaseModel):
         L = torch.tril(A)
         diagonal = F.softplus(A.diagonal(0, -2, -1)) + 1e-4
         L = L + torch.diag_embed(diagonal)
-        L_LT = torch.stack([l @ l.t() for l in torch.unbind(L, dim=0)], dim=0)
+        L_LT = torch.bmm(L, L.t(-2, -1))
         precision = L_LT + 1e-4 * torch.eye(self.z_dim, device=imgs.device)
         zs = q.multivariate_normal(loc=mu, precision_matrix=precision,
                                    name='z')
 
         cov_loc = self.cov_loc.expand(imgs.shape[0], self.z_dim, self.z_dim)
-        zs_squared = torch.stack([z.unsqueeze(-1) @ z.unsqueeze(0) for z
-                                  in torch.unbind(zs, dim=0)], dim=0)
+        zs_squared = torch.bmm(z.unsqueeze(-1), z.unsqueeze(0))
         q.variable(Wishart, self.cov_df + 1, cov_loc + zs_squared,
                    name='precision', value=precision)
 
