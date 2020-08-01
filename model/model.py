@@ -146,7 +146,7 @@ class ShapesChyVae(BaseModel):
         diagonal = F.softplus(A.diagonal(0, -2, -1)) + 1e-4
         L = L + torch.diag_embed(diagonal)
         L_LT = torch.stack([l @ l.t() for l in torch.unbind(L, dim=0)], dim=0)
-        covariance = L_LT + 1e-4 * torch.eye(self.z_dim).to(imgs)
+        covariance = L_LT + 1e-4 * torch.eye(self.z_dim, device=imgs.device)
         zs = q.multivariate_normal(loc=mu, covariance_matrix=covariance,
                                    name='z')
 
