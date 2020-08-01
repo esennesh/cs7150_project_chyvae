@@ -14,7 +14,7 @@ class Wishart(dist.Distribution):
     def __init__(self, df, scale, validate_args=None):
         self._dim = scale.shape[-1]
         assert df > self._dim - 1
-        self.df = torch.tensor([df], dtype=torch.int, device=scale.device)
+        self.df = torch.tensor([df], device=scale.device)
         self.cholesky_factor = transforms.LowerCholeskyTransform()(scale)
         self.chi_sqd_dists = [dist.Chi2(self.df - i) for i in range(self._dim)]
         batch_shape, event_shape = scale.shape[:-2], scale.shape[-2:]
