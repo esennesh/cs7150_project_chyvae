@@ -32,11 +32,11 @@ class Wishart(dist.Distribution):
                        diagonal=-1) + chi_sqds
 
         results = []
-        chol_a_mat = torch.bmm(chol, a_mat)
+        chol_a_mat = torch.bmm(self.cholesky_factor, a_mat)
         return torch.bmm(chol_a_mat, chol_a_mat.transpose(-2, -1))
 
     def log_prob(self, value):
-        cholesky_factor = self.cholesky_factor
+        chol = self.cholesky_factor
 
         scale = torch.bmm(chol, chol.transpose(-2, -1))
         log_normalizer = (self.df * self._dim / 2.) * np.log(2) +\
@@ -44,9 +44,8 @@ class Wishart(dist.Distribution):
                          torch.mvlgamma(self.df / 2., self._dim)
 
         numerator_logdet = (self.df - self._dim - 1) / 2. * torch.logdet(value)
-        choleskied_value = torch.bmm(torch.cholesky_inverse(cholesky_factor),
-                                     value)
-        numerator_logtrace = -1/2 * torch.trace(choleskied_value)
+        choleskied_value = torch.bmm(torch.inverse(chol), value)
+        numerator_logtrace = -1/2 * torch.diagonal(choleskied_value, dim1=-2, dim2=-1).sum(-1)
         log_numerator = numerator_logdet + numerator_logtrace
         return log_numerator - log_normalizer
 
