@@ -122,11 +122,11 @@ class ShapesChyVae(BaseModel):
                                np.sqrt(self._data_dim))
 
         cov_loc = self.cov_loc.expand(imgs.shape[0], self.z_dim, self.z_dim)
-        covariance = p.variable(InverseWishart, self.cov_df, cov_loc,
-                                name='covariance', value=q['covariance'].value)
+        precision = p.variable(Wishart, self.cov_df, cov_loc, name='precision',
+                               value=q['precision'].value)
 
         mu = imgs.new_zeros(self.z_dim)
-        zs = p.multivariate_normal(loc=mu, covariance_matrix=covariance,
+        zs = p.multivariate_normal(loc=mu, precision_matrix=precision,
                                    name='z', value=q['z'].value)
 
         features = self.decoder_linears(zs).view(-1, 64, 4, 4)
@@ -134,7 +134,7 @@ class ShapesChyVae(BaseModel):
         reconstruction = p.continuous_bernoulli(logits=reconstruction,
                                                 name=reconstruction, value=imgs)
 
-        return mu, covariance, zs, reconstruction
+        return mu, precision, zs, reconstruction
 
     def guide(self, q, imgs):
         features = self.encoder_convs(imgs).view(len(imgs), -1)
@@ -146,17 +146,17 @@ class ShapesChyVae(BaseModel):
         diagonal = F.softplus(A.diagonal(0, -2, -1)) + 1e-4
         L = L + torch.diag_embed(diagonal)
         L_LT = torch.stack([l @ l.t() for l in torch.unbind(L, dim=0)], dim=0)
-        covariance = L_LT + 1e-4 * torch.eye(self.z_dim, device=imgs.device)
-        zs = q.multivariate_normal(loc=mu, covariance_matrix=covariance,
+        precision = L_LT + 1e-4 * torch.eye(self.z_dim, device=imgs.device)
+        zs = q.multivariate_normal(loc=mu, precision_matrix=precision,
                                    name='z')
 
         cov_loc = self.cov_loc.expand(imgs.shape[0], self.z_dim, self.z_dim)
         zs_squared = torch.stack([z.unsqueeze(-1) @ z.unsqueeze(0) for z
                                   in torch.unbind(zs, dim=0)], dim=0)
-        q.variable(InverseWishart, self.cov_df + 1, cov_loc + zs_squared,
-                   name='covariance', value=covariance)
+        q.variable(Wishart, self.cov_df + 1, cov_loc + zs_squared,
+                   name='precision', value=precision)
 
-        return zs, covariance
+        return zs, precision
 
     def forward(self, imgs=None):
         q = probtorch.Trace()
