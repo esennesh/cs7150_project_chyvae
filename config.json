@@ -13,7 +13,7 @@
         "type": "dSpriteDataLoader",
         "args":{
             "data_dir": "data/",
-            "batch_size": 8184,
+            "batch_size": 4096,
             "shuffle": true,
             "validation_split": 0.1,
             "num_workers": 2
@@ -22,7 +22,7 @@
     "optimizer": {
         "type": "Adam",
         "args":{
-            "lr": 1e-4,
+            "lr": 1e-5,
             "weight_decay": 0,
             "amsgrad": true
         }
