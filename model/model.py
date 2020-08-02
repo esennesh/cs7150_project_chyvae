@@ -14,7 +14,7 @@ class Wishart(dist.Distribution):
     def __init__(self, df, scale, validate_args=None):
         self._dim = scale.shape[-1]
         assert df > self._dim - 1
-        self.df = df
+        self.df = torch.tensor([df], device=scale.device)
         self.cholesky_factor = transforms.LowerCholeskyTransform()(scale)
         self.chi_sqd_dists = [dist.Chi2(self.df - i) for i in range(self._dim)]
         batch_shape, event_shape = scale.shape[:-2], scale.shape[-2:]
@@ -27,32 +27,25 @@ class Wishart(dist.Distribution):
                                 for d in self.chi_sqd_dists], dim=-1)
         chi_sqds = torch.stack([torch.diag(chi_sqd) for chi_sqd
                                 in torch.unbind(chi_sqds, dim=0)], dim=0)
-        A_tril = torch.tril(torch.randn(*sample_shape, self._dim, self._dim),
-                            diagonal=-1).to(self.cholesky_factor)
-        A = chi_sqds.to(self.cholesky_factor) + A_tril
+        A = torch.tril(torch.randn(*sample_shape, self._dim, self._dim,
+                                   device=self.df.device),
+                       diagonal=-1) + chi_sqds
 
         results = []
-        for chol, a_mat in zip(torch.unbind(self.cholesky_factor, dim=0),
-                               torch.unbind(A, dim=0)):
-            results.append(chol @ (a_mat @ a_mat.t()) @ chol.t())
-        return torch.stack(results, dim=0)
+        chol_a_mat = torch.bmm(self.cholesky_factor, a_mat)
+        return torch.bmm(chol_a_mat, chol_a_mat.transpose(-2, -1))
 
     def log_prob(self, value):
-        cholesky_factor = self.cholesky_factor.to(value)
+        chol = self.cholesky_factor
 
-        scale = torch.stack([chol @ chol.t() for chol in
-                             torch.unbind(cholesky_factor, dim=0)], dim=0)
-        df_factor = torch.tensor([self.df / 2]).to(value)
-        log_normalizer = (self.df * self._dim / 2) * np.log(2) +\
-                         (self.df / 2) * torch.logdet(scale) +\
-                         torch.mvlgamma(df_factor, self._dim)
+        scale = torch.bmm(chol, chol.transpose(-2, -1))
+        log_normalizer = (self.df * self._dim / 2.) * np.log(2) +\
+                         (self.df / 2.) * torch.logdet(scale) +\
+                         torch.mvlgamma(self.df / 2., self._dim)
 
-        numerator_logdet = (self.df - self._dim - 1) / 2 * torch.logdet(value)
-        choleskied_value = torch.stack([
-            torch.trace(torch.cholesky_inverse(cholesky_factor[i]) @ value[i])
-            for i in range(value.shape[0])
-        ], dim=0)
-        numerator_logtrace = -1/2 * choleskied_value
+        numerator_logdet = (self.df - self._dim - 1) / 2. * torch.logdet(value)
+        choleskied_value = torch.bmm(torch.inverse(chol), value)
+        numerator_logtrace = -1/2 * torch.diagonal(choleskied_value, dim1=-2, dim2=-1).sum(-1)
         log_numerator = numerator_logdet + numerator_logtrace
         return log_numerator - log_normalizer
 
@@ -131,9 +124,10 @@ class ShapesChyVae(BaseModel):
                                    name='z', value=q['z'].value)
 
         features = self.decoder_linears(zs).view(-1, 64, 4, 4)
-        reconstruction = self.decoder_convs(features)
-        reconstruction = p.continuous_bernoulli(logits=reconstruction,
-                                                name=reconstruction, value=imgs)
+        reconstruction = torch.sigmoid(self.decoder_convs(features))
+        reconstruction = p.continuous_bernoulli(probs=reconstruction,
+                                                name=reconstruction,
+                                                value=imgs)
 
         return mu, covariance, zs, reconstruction
 
@@ -146,14 +140,13 @@ class ShapesChyVae(BaseModel):
         L = torch.tril(A)
         diagonal = F.softplus(A.diagonal(0, -2, -1)) + 1e-4
         L = L + torch.diag_embed(diagonal)
-        L_LT = torch.stack([l @ l.t() for l in torch.unbind(L, dim=0)], dim=0)
-        covariance = L_LT + 1e-4 * torch.eye(self.z_dim).to(imgs)
+        L_LT = torch.bmm(L, L.transpose(-2, -1))
+        covariance = L_LT + 1e-4 * torch.eye(self.z_dim, device=imgs.device)
         zs = q.multivariate_normal(loc=mu, covariance_matrix=covariance,
                                    name='z')
 
         cov_loc = self.cov_loc.expand(imgs.shape[0], self.z_dim, self.z_dim)
-        zs_squared = torch.stack([z.unsqueeze(-1) @ z.unsqueeze(0) for z
-                                  in torch.unbind(zs, dim=0)], dim=0)
+        zs_squared = torch.bmm(zs.unsqueeze(-1), zs.unsqueeze(-2))
         q.variable(InverseWishart, self.cov_df + 1, cov_loc + zs_squared,
                    name='covariance', value=covariance)
 
@@ -164,6 +157,6 @@ class ShapesChyVae(BaseModel):
         self.guide(q, imgs)
 
         p = probtorch.Trace()
-        self.model(p, q, imgs)
+        _, _, _, reconstruction = self.model(p, q, imgs)
 
-        return p, q
+        return p, q, reconstruction
