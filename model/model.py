@@ -156,6 +156,6 @@ class ShapesChyVae(BaseModel):
         self.guide(q, imgs)
 
         p = probtorch.Trace()
-        self.model(p, q, imgs)
+        _, _, _, reconstruction = self.model(p, q, imgs)
 
-        return p, q
+        return p, q, reconstruction
