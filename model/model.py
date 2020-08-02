@@ -101,8 +101,8 @@ class ShapesChyVae(BaseModel):
 
         self.lower_choleskyize = transforms.LowerCholeskyTransform()
 
-        self.cov_loc = nn.Parameter(torch.eye(self.z_dim))
-        self.cov_df = self.z_dim + 1
+        self.register_buffer('cov_loc', torch.eye(self.z_dim))
+        self.register_buffer('cov_df', torch.tensor([self.z_dim + 1]))
 
     @property
     def z_dim(self):
