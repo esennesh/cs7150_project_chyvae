@@ -126,7 +126,7 @@ class ShapesChyVae(BaseModel):
         features = self.decoder_linears(zs).view(-1, 64, 4, 4)
         reconstruction = torch.sigmoid(self.decoder_convs(features))
         reconstruction = p.continuous_bernoulli(probs=reconstruction,
-                                                name=reconstruction,
+                                                name='reconstruction',
                                                 value=imgs)
 
         return mu, covariance, zs, reconstruction
