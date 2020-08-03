@@ -1,10 +1,11 @@
-import pyro
+import probtorch
 import torch
 import numpy as np
 from abc import abstractmethod
 
+EPS = 1e-9
 
-class BaseModel(pyro.nn.PyroModule):
+class BaseModel(torch.nn.Module):
     """
     Base class for all models
     """
@@ -34,3 +35,8 @@ class BaseModel(pyro.nn.PyroModule):
         resume_path = str(resume_path)
         checkpoint = torch.load(resume_path)
         self.load_state_dict(checkpoint['state_dict'])
+
+def probtorch_cross_entropy(estimate, ground_truth):
+    terms = -(torch.log(estimate + EPS) * ground_truth +\
+              torch.log(1 - estimate + EPS) * (1 - ground_truth))
+    return terms.squeeze().sum(-1).sum(-1)
