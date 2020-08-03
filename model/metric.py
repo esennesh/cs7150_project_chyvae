@@ -1,20 +1,22 @@
-import torch
+import torch.nn.functional as F
+import probtorch.objectives.montecarlo as objectives
 
+import base.base_model as base
 
-def accuracy(output, target):
-    with torch.no_grad():
-        pred = torch.argmax(output, dim=1)
-        assert pred.shape[0] == len(target)
-        correct = 0
-        correct += torch.sum(pred == target).item()
-    return correct / len(target)
+def elbo(output, target):
+    p, q, _ = output
 
+    return -objectives.elbo(q, p, sample_dim=None, batch_dim=0)
 
-def top_k_acc(output, target, k=3):
-    with torch.no_grad():
-        pred = torch.topk(output, k, dim=1)[1]
-        assert pred.shape[0] == len(target)
-        correct = 0
-        for i in range(k):
-            correct += torch.sum(pred[:, i] == target).item()
-    return correct / len(target)
+def log_likelihood(output, target):
+    p, q, _ = output
+
+    return -objectives.log_like(q, p, sample_dim=None, batch_dim=0)
+
+def reconstruction_error(output, target):
+    p, q, _ = output
+
+    reconstruction = p['reconstruction'].dist.probs
+    observation = p['reconstruction'].value
+    cross_entropy = base.probtorch_cross_entropy(reconstruction, observation)
+    return cross_entropy.mean(dim=0)
