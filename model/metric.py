@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 import probtorch.objectives.montecarlo as objectives
 
@@ -8,12 +9,12 @@ def elbo(output, target):
 
     return -objectives.elbo(q, p, sample_dim=None, batch_dim=0)
 
-def log_likelihood(output, target):
+def log_likelihood(output, target, metadata=None):
     p, q, _ = output
 
     return -objectives.log_like(q, p, sample_dim=None, batch_dim=0)
 
-def reconstruction_error(output, target):
+def reconstruction_error(output, target, metadata=None):
     p, q, _ = output
 
     reconstruction = p['reconstruction'].dist.probs
