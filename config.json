@@ -29,7 +29,7 @@
     },
     "loss": "elbo",
     "metrics": [
-        "log_likelihood", "reconstruction_error"
+        "log_likelihood", "reconstruction_error", "disentanglement_metric"
     ],
     "lr_scheduler": {
         "type": "StepLR",
