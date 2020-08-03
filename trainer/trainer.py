@@ -36,6 +36,7 @@ class Trainer(BaseTrainer):
         """
         Full validation logic
         """
+        metrics = []
         for epoch in range(epochs):
             result = self._valid_epoch(epoch)
 
@@ -46,6 +47,10 @@ class Trainer(BaseTrainer):
             # print logged informations to the screen
             for key, value in log.items():
                 self.logger.info('    {:15s}: {}'.format(str(key), value))
+
+            metrics.append(result)
+
+        return metrics
 
     def _train_epoch(self, epoch):
         """
