@@ -32,6 +32,21 @@ class Trainer(BaseTrainer):
         self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
         self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
 
+    def validate(self, epochs=1):
+        """
+        Full validation logic
+        """
+        for epoch in range(epochs):
+            result = self._valid_epoch(epoch)
+
+            # save logged informations into log dict
+            log = {'epoch': epoch}
+            log.update(result)
+
+            # print logged informations to the screen
+            for key, value in log.items():
+                self.logger.info('    {:15s}: {}'.format(str(key), value))
+
     def _train_epoch(self, epoch):
         """
         Training logic for an epoch
